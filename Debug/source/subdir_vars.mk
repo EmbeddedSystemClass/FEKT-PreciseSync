@@ -28,6 +28,7 @@ C_SRCS += \
 ../source/HL_nmpu.c \
 ../source/HL_notification.c \
 ../source/HL_phy_dp83640.c \
+../source/HL_phy_tlk111.c \
 ../source/HL_pinmux.c \
 ../source/HL_sys_dma.c \
 ../source/HL_sys_pcr.c \
@@ -62,6 +63,7 @@ C_DEPS += \
 ./source/HL_nmpu.d \
 ./source/HL_notification.d \
 ./source/HL_phy_dp83640.d \
+./source/HL_phy_tlk111.d \
 ./source/HL_pinmux.d \
 ./source/HL_sys_dma.d \
 ./source/HL_sys_pcr.d \
@@ -96,6 +98,7 @@ OBJS += \
 ./source/HL_nmpu.obj \
 ./source/HL_notification.obj \
 ./source/HL_phy_dp83640.obj \
+./source/HL_phy_tlk111.obj \
 ./source/HL_pinmux.obj \
 ./source/HL_sys_core.obj \
 ./source/HL_sys_dma.obj \
@@ -142,6 +145,7 @@ OBJS__QUOTED += \
 "source\HL_nmpu.obj" \
 "source\HL_notification.obj" \
 "source\HL_phy_dp83640.obj" \
+"source\HL_phy_tlk111.obj" \
 "source\HL_pinmux.obj" \
 "source\HL_sys_core.obj" \
 "source\HL_sys_dma.obj" \
@@ -181,6 +185,7 @@ C_DEPS__QUOTED += \
 "source\HL_nmpu.d" \
 "source\HL_notification.d" \
 "source\HL_phy_dp83640.d" \
+"source\HL_phy_tlk111.d" \
 "source\HL_pinmux.d" \
 "source\HL_sys_dma.d" \
 "source\HL_sys_pcr.d" \
@@ -222,6 +227,7 @@ C_SRCS__QUOTED += \
 "../source/HL_nmpu.c" \
 "../source/HL_notification.c" \
 "../source/HL_phy_dp83640.c" \
+"../source/HL_phy_tlk111.c" \
 "../source/HL_pinmux.c" \
 "../source/HL_sys_dma.c" \
 "../source/HL_sys_pcr.c" \

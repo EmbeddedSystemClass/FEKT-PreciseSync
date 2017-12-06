@@ -56,14 +56,12 @@
 #include "ff_stdio.h"
 #include "ff_ramdisk.h"
 
-uint8 emacAddress[6U] =	{0x00U, 0x08U, 0xEEU, 0x03U, 0xA6U, 0x6CU};
+uint8 emacAddress[6U] =	{0x00U, 0x08U, 0xEEU, 0x03U, 0xA6U, 0x6DU};
 uint32 emacPhyAddress =	1U;
 static const uint8_t ucIPAddress[4] = {configIP_ADDR0, configIP_ADDR1, configIP_ADDR2, configIP_ADDR3};
 static const uint8_t ucNetMask[4] = {configNET_MASK0, configNET_MASK1, configNET_MASK2, configNET_MASK3};
 static const uint8_t ucGatewayAddress[4] = {configGATEWAY_ADDR0, configGATEWAY_ADDR1, configGATEWAY_ADDR2, configGATEWAY_ADDR3};
 static const uint8_t ucDNSServerAddress[4] = {configDNS_SERVER_ADDR0, configDNS_SERVER_ADDR1, configDNS_SERVER_ADDR2, configDNS_SERVER_ADDR3};
-
-extern Peripheral_Descriptor_t xConsoleUART;
 
 /* Task handlers */
 xTaskHandle xTask1Handle, xTask2Handle, xServerWorkTaskHandle;
@@ -75,8 +73,8 @@ static void vTask2(void *pvParameters);
 static void vServerWorkTask(void *pvParameters);
 void vStartNTPTask( uint16_t usTaskStackSize, UBaseType_t uxTaskPriority );
 static void vUDPSendUsingStandardInterface( void *pvParameters );
-static void clockSyncMaster( void *pvParameters );
-static void clockSyncSlave( void *pvParameters );
+
+static void vADCtoFile( void *pvParameters );
 
 static void vUDPSendingUsingZeroCopyInterface( void *pvParameters );
 static void vUDPReceivingUsingStandardInterface( void *pvParameters );
@@ -144,10 +142,9 @@ void main(void)
 
 	xTaskCreate(vTask1, "HeartBeat", configMINIMAL_STACK_SIZE * 10, NULL, tskIDLE_PRIORITY + 3  | portPRIVILEGE_BIT, &xTask1Handle);
 	FreeRTOS_IPInit(ucIPAddress, ucNetMask, ucGatewayAddress, ucDNSServerAddress, emacAddress);
-	xTaskCreate(vUDPSendUsingStandardInterface, "UDPsend", configMINIMAL_STACK_SIZE * 20, NULL, tskIDLE_PRIORITY + 3  | portPRIVILEGE_BIT, &xTask1Handle);
-   // xTaskCreate(vUDPReceivingUsingStandardInterface, "UDPreceive", configMINIMAL_STACK_SIZE * 20, NULL, tskIDLE_PRIORITY + 3  | portPRIVILEGE_BIT, &xTask1Handle);
-   // xTaskCreate(clockSyncMaster, "ClockSyncMaster", configMINIMAL_STACK_SIZE * 20, NULL, tskIDLE_PRIORITY + 3  | portPRIVILEGE_BIT, &xTask1Handle);
-   // xTaskCreate(clockSyncSlave, "ClockSyncSlave", configMINIMAL_STACK_SIZE * 20, NULL, tskIDLE_PRIORITY + 3  | portPRIVILEGE_BIT, &xTask1Handle);
+	//xTaskCreate(vUDPSendUsingStandardInterface, "UDPsend", configMINIMAL_STACK_SIZE * 20, NULL, tskIDLE_PRIORITY + 3  | portPRIVILEGE_BIT, &xTask1Handle);
+	xTaskCreate(vADCtoFile, "ADCread", configMINIMAL_STACK_SIZE * 20, NULL, tskIDLE_PRIORITY + 3  | portPRIVILEGE_BIT, &xTask1Handle);
+    //xTaskCreate(vUDPReceivingUsingStandardInterface, "UDPreceive", configMINIMAL_STACK_SIZE * 20, NULL, tskIDLE_PRIORITY + 3  | portPRIVILEGE_BIT, &xTask1Handle);
 
 	/* Start the command interpreter */
 	vStartUARTCommandInterpreterTask();
@@ -158,193 +155,6 @@ void main(void)
 
 extern Peripheral_Descriptor_t xConsoleUART;
 
-static void clockSyncMaster( void *pvParameters )
-{
-    Socket_t xSocket;
-    long lBytes;
-    uint8_t cReceivedString[ 60 ];
-    struct freertos_sockaddr xClient, xBindAddress;
-    uint32_t xClientLength = sizeof( xClient );
-    Socket_t xListeningSocket;
-    struct freertos_sockaddr xDestinationAddress;
-    uint8_t cString[ 100 ];
-    uint8_t cPacket[ 100 ];
-    uint32_t sendTime;
-
-    /* Attempt to open the socket. */
-    xListeningSocket = FreeRTOS_socket( FREERTOS_AF_INET,
-                                       FREERTOS_SOCK_DGRAM,/*FREERTOS_SOCK_DGRAM for UDP.*/
-                                       FREERTOS_IPPROTO_UDP );
-
-    /* Check the socket was created. */
-    configASSERT( xListeningSocket != FREERTOS_INVALID_SOCKET );
-
-    /* Bind to port 10000. */
-    xBindAddress.sin_port = FreeRTOS_htons( 10000 );
-    FreeRTOS_bind( xListeningSocket, &xBindAddress, sizeof( xBindAddress ) );
-
-    xDestinationAddress.sin_addr = FreeRTOS_inet_addr( "192.168.1.3" );
-    xDestinationAddress.sin_port = FreeRTOS_htons( 10010 );
-
-    xSocket = FreeRTOS_socket( FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP );
-    configASSERT( xSocket != FREERTOS_INVALID_SOCKET );
-
-
-
-
-    for( ;; )
-    {
-
-        if( *ipLOCAL_IP_ADDRESS_POINTER != 0x00UL ) {
-            xSocket = FreeRTOS_socket( FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP );
-            configASSERT( xSocket != FREERTOS_INVALID_SOCKET );
-            sprintf(cString, "Sending Sync packet 1 at: %u\r\n", xTaskGetTickCount());
-            if( FreeRTOS_ioctl( xConsoleUART, ioctlOBTAIN_WRITE_MUTEX, (void *)10000 ) == pdPASS )
-            {
-                FreeRTOS_write( xConsoleUART, cString, strlen( ( char * ) cString ) );
-            }
-
-            sprintf(cPacket, "%u", xTaskGetTickCount());
-            FreeRTOS_sendto( xSocket, cPacket, strlen( cPacket ), 0, &xDestinationAddress, sizeof( xDestinationAddress ) );
-
-
-            lBytes = FreeRTOS_recvfrom( xListeningSocket, cReceivedString, sizeof( cReceivedString ), 0, &xClient, &xClientLength );
-            if (lBytes>0)
-            {
-                sprintf(cString, "Rx: %s at: %u\r\n", cReceivedString, xTaskGetTickCount());
-                /*int i=0;
-                while (cString[i]!=0xAE)
-                {
-                    i++;
-                }*/
-                //cString[i]=0;
-
-            }
-            if( FreeRTOS_ioctl( xConsoleUART, ioctlOBTAIN_WRITE_MUTEX, (void *)10000 ) == pdPASS )
-            {
-               FreeRTOS_write( xConsoleUART, cString, strlen( ( char * ) cString ) );
-            }
-            memset(cReceivedString, 0, sizeof(cReceivedString));
-
-
-            vTaskDelay( 500UL / portTICK_PERIOD_MS);
-        }
-        else
-            vTaskDelay( 100UL / portTICK_PERIOD_MS);
-
-    }
-}
-
-static void clockSyncSlave( void *pvParameters )
-{
-    Socket_t xSocket;
-    long lBytes;
-    uint8_t cReceivedString[ 60 ];
-    struct freertos_sockaddr xClient, xBindAddress;
-    uint32_t xClientLength = sizeof( xClient );
-    Socket_t xListeningSocket1;
-    struct freertos_sockaddr xDestinationAddress;
-    uint8_t cString[ 100 ];
-    uint8_t cPacket[ 100 ];
-    uint64_t sendTime;
-    uint64_t receivedTime;
-    uint64_t syncTime;
-
-    /* Attempt to open the socket. */
-    xListeningSocket1 = FreeRTOS_socket( FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP );
-
-    /* Check the socket was created. */
-    configASSERT( xListeningSocket1 != FREERTOS_INVALID_SOCKET );
-
-    /* Bind to port 10000. */
-    xBindAddress.sin_port = FreeRTOS_htons( 10000 );
-    FreeRTOS_bind( xListeningSocket1, &xBindAddress, sizeof( xBindAddress ) );
-
-    xDestinationAddress.sin_addr = FreeRTOS_inet_addr( "192.168.1.3" );
-    xDestinationAddress.sin_port = FreeRTOS_htons( 10010 );
-
-    xSocket = FreeRTOS_socket( FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP );
-    configASSERT( xSocket != FREERTOS_INVALID_SOCKET );
-
-
-
-
-    for( ;; )
-    {
-        if( *ipLOCAL_IP_ADDRESS_POINTER != 0x00UL ) {
-            lBytes = FreeRTOS_recvfrom( xListeningSocket1, cReceivedString, sizeof( cReceivedString ), 0, &xClient, &xClientLength );
-            if (lBytes>0)
-            {
-                receivedTime = atoi(cReceivedString);
-                syncTime = receivedTime - xTaskGetTickCount();
-                //vzit receivedTime, odecist od nej muj lokalni cas
-                //odeslat mastrovi request delay, pockat na odpoved
-                //vzit cas mezi request delay a odpovedi (delay response)
-                //vydelit jej 2 a pricist k lokalnimu casu
-                sprintf(cString, "Rx time: %lld at: %d\r\n", receivedTime, xTaskGetTickCount());
-                if( FreeRTOS_ioctl( xConsoleUART, ioctlOBTAIN_WRITE_MUTEX, (void *)10000 ) == pdPASS )
-                {
-                   FreeRTOS_write( xConsoleUART, cString, strlen( ( char * ) cString ) );
-                }
-                memset(cReceivedString, 0, sizeof(cReceivedString));
-
-
-
-                xSocket = FreeRTOS_socket( FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP );
-                configASSERT( xSocket != FREERTOS_INVALID_SOCKET );
-                sprintf(cPacket, "delay request %u", xTaskGetTickCount());
-                FreeRTOS_sendto( xSocket, cPacket, strlen( cPacket ), 0, &xDestinationAddress, sizeof( xDestinationAddress ) );
-                if( FreeRTOS_ioctl( xConsoleUART, ioctlOBTAIN_WRITE_MUTEX, (void *)100000 ) == pdPASS )
-                {
-
-                    sprintf(cString, "Sending delay request at: %u\r\n", xTaskGetTickCount());
-                    FreeRTOS_write( xConsoleUART, cString, strlen( ( char * ) cString ) );
-                }
-
-
-            }
-        }
-
-
-
-
-
-
-        /*if( *ipLOCAL_IP_ADDRESS_POINTER != 0x00UL ) {
-            xSocket = FreeRTOS_socket( FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP );
-            configASSERT( xSocket != FREERTOS_INVALID_SOCKET );
-            sprintf(cString, "Sending Sync packet 1 at: %u\r\n", xTaskGetTickCount());
-            if( FreeRTOS_ioctl( xConsoleUART, ioctlOBTAIN_WRITE_MUTEX, (void *)10000 ) == pdPASS )
-            {
-                FreeRTOS_write( xConsoleUART, cString, strlen( ( char * ) cString ) );
-            }
-
-            sprintf(cPacket, "%u", xTaskGetTickCount());
-            FreeRTOS_sendto( xSocket, cPacket, strlen( cPacket ), 0, &xDestinationAddress, sizeof( xDestinationAddress ) );
-
-
-            lBytes = FreeRTOS_recvfrom( xListeningSocket, cReceivedString, sizeof( cReceivedString ), 0, &xClient, &xClientLength );
-            if (lBytes>0)
-            {
-                sprintf(cString, "Rx: %s at: %u\r\n", cReceivedString, xTaskGetTickCount());
-                //cString[i]=0;
-
-            }
-            if( FreeRTOS_ioctl( xConsoleUART, ioctlOBTAIN_WRITE_MUTEX, (void *)10000 ) == pdPASS )
-            {
-               FreeRTOS_write( xConsoleUART, cString, strlen( ( char * ) cString ) );
-            }
-            memset(cReceivedString, 0, sizeof(cReceivedString));
-
-
-            vTaskDelay( 500UL / portTICK_PERIOD_MS);
-        }*/
-        else
-            vTaskDelay( 100UL / portTICK_PERIOD_MS);
-
-    }
-}
-
 static void vUDPReceivingUsingStandardInterface( void *pvParameters )
 {
     Socket_t xSocket;
@@ -354,7 +164,6 @@ struct freertos_sockaddr xClient, xBindAddress;
 uint32_t xClientLength = sizeof( xClient );
 Socket_t xListeningSocket;
 struct freertos_sockaddr xDestinationAddress;
-uint8_t cString[ 100 ];
 
    /* Attempt to open the socket. */
    xListeningSocket = FreeRTOS_socket( FREERTOS_AF_INET,
@@ -368,7 +177,7 @@ uint8_t cString[ 100 ];
    xBindAddress.sin_port = FreeRTOS_htons( 10000 );
    FreeRTOS_bind( xListeningSocket, &xBindAddress, sizeof( xBindAddress ) );
 
-   xDestinationAddress.sin_addr = FreeRTOS_inet_addr( "192.168.1.3" );
+   xDestinationAddress.sin_addr = FreeRTOS_inet_addr( "192.168.1.4" );
       xDestinationAddress.sin_port = FreeRTOS_htons( 10080 );
 
    for( ;; )
@@ -385,21 +194,106 @@ uint8_t cString[ 100 ];
 
        if( lBytes > 0 )
        {
-           xSocket = FreeRTOS_socket( FREERTOS_AF_INET, FREERTOS_SOCK_DGRAM, FREERTOS_IPPROTO_UDP );
-           configASSERT( xSocket != FREERTOS_INVALID_SOCKET );
 
-           sprintf(cString, "Rx: %s at: %u\r\n", cReceivedString, xTaskGetTickCount());
+           xSocket = FreeRTOS_socket( FREERTOS_AF_INET,
+                                                    FREERTOS_SOCK_DGRAM,/*FREERTOS_SOCK_DGRAM for UDP.*/
+                                                    FREERTOS_IPPROTO_UDP );
 
-           if( FreeRTOS_ioctl( xConsoleUART, ioctlOBTAIN_WRITE_MUTEX, (void *)10000 ) == pdPASS )
-           {
-               FreeRTOS_write( xConsoleUART, cString, strlen( ( char * ) cString ) );
-           }
+                         configASSERT( xSocket != FREERTOS_INVALID_SOCKET );
 
-           FreeRTOS_sendto( xSocket, cReceivedString, strlen( cReceivedString ), 0, &xDestinationAddress, sizeof( xDestinationAddress ) );
-          // memset(cString,0,strlen(cString));
-           //memset(cReceivedString,0,strlen(cReceivedString));
+                  FreeRTOS_sendto( xSocket,
+                                   cReceivedString,
+                                   strlen( cReceivedString ),
+                                   0,
+                                   &xDestinationAddress,
+                                   sizeof( xDestinationAddress ) );
+
        }
    }
+}
+
+static void vADCtoFile( void *pvParameters )
+{
+Socket_t xSocket;
+struct freertos_sockaddr xDestinationAddress;
+uint8_t cString[ 10 ];
+uint32_t ulCount = 0UL;
+uint64_t timeStamp = 0UL;
+const TickType_t x1000ms = 1000UL / portTICK_PERIOD_MS;
+const TickType_t x100ms = 100UL / portTICK_PERIOD_MS;
+const TickType_t x10ms = 10UL / portTICK_PERIOD_MS;
+const TickType_t x1ms = 1UL / portTICK_PERIOD_MS;
+
+   /* Send strings to port 10000 on IP address 192.168.0.50. */
+   xDestinationAddress.sin_addr = FreeRTOS_inet_addr( "192.168.1.4" );
+   xDestinationAddress.sin_port = FreeRTOS_htons( 10080 );
+
+   /* Create the socket. */
+   xSocket = FreeRTOS_socket( FREERTOS_AF_INET,
+                              FREERTOS_SOCK_DGRAM,/*FREERTOS_SOCK_DGRAM for UDP.*/
+                              FREERTOS_IPPROTO_UDP );
+
+   /* Check the socket was created. */
+   configASSERT( xSocket != FREERTOS_INVALID_SOCKET );
+
+   /* NOTE: FreeRTOS_bind() is not called.  This will only work if
+   ipconfigALLOW_SOCKET_SEND_WITHOUT_BIND is set to 1 in FreeRTOSIPConfig.h. */
+
+
+   xSocket = FreeRTOS_socket( FREERTOS_AF_INET,FREERTOS_SOCK_DGRAM,FREERTOS_IPPROTO_UDP );/*FREERTOS_SOCK_DGRAM for UDP.*/
+
+                        /* Check the socket was created. */
+                        configASSERT( xSocket != FREERTOS_INVALID_SOCKET );
+
+
+
+
+    adcData_t Adc1Results[2];
+    uint8_t data_buffer[100];
+
+
+    while(1)
+    {
+
+        adcStartConversion(adcREG1, adcGROUP1);
+        while(adcIsConversionComplete(adcREG1, adcGROUP1) == 0);
+        adcGetData(adcREG1, adcGROUP1, Adc1Results);
+
+       // uint32_t pot=Get_Pot_ADC_data();
+        /* OnChip temperature sensor 1 */
+        //sprintf(data_buffer,"%010d\r\n",pot);
+      //  sprintf(data_buffer,"%2.2f\r\n",xConvertAdcValueToNtcTemperature(Adc1Results[1].value, 4095, 1000.0, 10.59719290e-3, -23.65584544e-4, 266.0378436e-7));
+        sprintf(data_buffer,"%d\r\n",Adc1Results[0].value);
+
+
+
+    if( *ipLOCAL_IP_ADDRESS_POINTER != 0x00UL )
+    {
+
+
+        /* Create the string that is sent. */
+              //timeStamp=Dp83640GetTimeStamp(EMAC_0_BASE,1U,2U);
+        sprintf( cString,"%s",data_buffer);
+
+        /* Send the string to the UDP socket.  ulFlags is set to 0, so the standard
+        semantics are used.  That means the data from cString[] is copied
+        into a network buffer inside FreeRTOS_sendto(), and cString[] can be
+        reused as soon as FreeRTOS_sendto() has returned. */
+        FreeRTOS_sendto( xSocket,
+                        cString,
+                        strlen( cString ),
+                        0,
+                        &xDestinationAddress,
+                        sizeof( xDestinationAddress ) );
+
+        ulCount++;
+        vTaskDelay( x10ms );
+    }
+    else
+    /* Wait until it is time to send again. */
+    vTaskDelay( x1000ms );
+
+    }
 }
 
 static void vUDPSendUsingStandardInterface( void *pvParameters )
@@ -414,7 +308,7 @@ const TickType_t x100ms = 100UL / portTICK_PERIOD_MS;
 const TickType_t x1ms = 1UL / portTICK_PERIOD_MS;
 
    /* Send strings to port 10000 on IP address 192.168.0.50. */
-   xDestinationAddress.sin_addr = FreeRTOS_inet_addr( "192.168.1.5" );
+   xDestinationAddress.sin_addr = FreeRTOS_inet_addr( "192.168.1.71" );
    xDestinationAddress.sin_port = FreeRTOS_htons( 10080 );
 
    /* Create the socket. */
@@ -428,9 +322,13 @@ const TickType_t x1ms = 1UL / portTICK_PERIOD_MS;
    /* NOTE: FreeRTOS_bind() is not called.  This will only work if
    ipconfigALLOW_SOCKET_SEND_WITHOUT_BIND is set to 1 in FreeRTOSIPConfig.h. */
 
-   for( ;; )
-   {
-       if( *ipLOCAL_IP_ADDRESS_POINTER != 0x00UL ) {
+
+
+    while(1)
+    {
+
+    if( *ipLOCAL_IP_ADDRESS_POINTER != 0x00UL )
+    {
 
            xSocket = FreeRTOS_socket( FREERTOS_AF_INET,
                                          FREERTOS_SOCK_DGRAM,/*FREERTOS_SOCK_DGRAM for UDP.*/
@@ -438,30 +336,29 @@ const TickType_t x1ms = 1UL / portTICK_PERIOD_MS;
 
               /* Check the socket was created. */
               configASSERT( xSocket != FREERTOS_INVALID_SOCKET );
-       /* Create the string that is sent. */
+        /* Create the string that is sent. */
               //timeStamp=Dp83640GetTimeStamp(EMAC_0_BASE,1U,2U);
-       sprintf( cString,
-                "abc %ld",ulCount);
+        sprintf( cString,"PACKET DATA");
 
-       /* Send the string to the UDP socket.  ulFlags is set to 0, so the standard
-       semantics are used.  That means the data from cString[] is copied
-       into a network buffer inside FreeRTOS_sendto(), and cString[] can be
-       reused as soon as FreeRTOS_sendto() has returned. */
-       FreeRTOS_sendto( xSocket,
+        /* Send the string to the UDP socket.  ulFlags is set to 0, so the standard
+        semantics are used.  That means the data from cString[] is copied
+        into a network buffer inside FreeRTOS_sendto(), and cString[] can be
+        reused as soon as FreeRTOS_sendto() has returned. */
+        FreeRTOS_sendto( xSocket,
                         cString,
                         strlen( cString ),
                         0,
                         &xDestinationAddress,
                         sizeof( xDestinationAddress ) );
 
-       ulCount++;
-       vTaskDelay( x100ms );
-       }
-       else
-       /* Wait until it is time to send again. */
-       vTaskDelay( x1000ms );
+        ulCount++;
+        vTaskDelay( x100ms );
+    }
+    else
+    /* Wait until it is time to send again. */
+    vTaskDelay( x1000ms );
 
-   }
+    }
 }
 
 static void vUDPSendingUsingZeroCopyInterface( void *pvParameters )

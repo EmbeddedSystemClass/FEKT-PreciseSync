@@ -11,5 +11,5 @@
 	<createSlaveProjects value=""/>
 	<templateProperties value="id=com.ti.common.project.core.emptyProjectWithMainTemplate,"/>
 	<isTargetManual value="false"/>
-	<origin value="W:/Disk Google/FEKT VUT - MS/MSPS/CCS/Precise_sync_TMS570"/>
+	<origin value="E:/TI/workspace_v7/Precise_sync_TMS570"/>
 </projectOptions>
